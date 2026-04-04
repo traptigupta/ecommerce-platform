@@ -23,13 +23,13 @@ const path = require('path');
 
 
 // ✅ CORS for frontend + OPTIONS preflight
-app.use(cors({
+//app.use(cors({
   
-    origin: "https://ecommerce-frontend-gold-six.vercel.app",
-    credentials: true,
-  methods: ["GET","POST","PUT","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
+  //  origin: "https://ecommerce-frontend-gold-six.vercel.app",
+   // credentials: true,
+  //methods: ["GET","POST","PUT","DELETE","OPTIONS"],
+  //allowedHeaders: ["Content-Type", "Authorization"],
+//}));
 
 app.options("*", cors()); // 👈 THIS LINE IS CRITICAL
 
