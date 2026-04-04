@@ -1,20 +1,21 @@
 const express = require("express");
 const router = express.Router();
+
 const auth = require("../middleware/auth");
 const adminAuth = require("../middleware/adminAuth");
+
 const Product = require("../models/Product");
+const cloudinary = require("../config/cloudinary");
+const upload = require("../middleware/upload");
 
 /* ===============================
-   🔹 CREATE PRODUCT (CLOTHING)
+   🔹 CREATE PRODUCT
 ================================ */
-const cloudinary = require("../config/cloudinary");
-const upload = require("../middleware/upload"); // ✅ for single product
-
 router.post(
   "/",
   auth,
   adminAuth,
-  upload.single("photo"), // ✅ Cloudinary upload
+  upload.single("photo"),
   async (req, res) => {
     try {
       const {
@@ -24,6 +25,7 @@ router.post(
         quantity,
         category,
         isFeatured,
+        variants,
       } = req.body;
 
       if (!name || !price || !category) {
@@ -32,9 +34,25 @@ router.post(
         });
       }
 
-      // ✅ Cloudinary image URL + public_id
-      const photo = req.file ? req.file.path : "";
-      const public_id = req.file ? req.file.filename : "";
+      let photo = "";
+      let public_id = "";
+
+      // ✅ Upload to Cloudinary (FIXED)
+      if (req.file) {
+        const result = await new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { folder: "products" },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          stream.end(req.file.buffer);
+        });
+
+        photo = result.secure_url;
+        public_id = result.public_id;
+      }
 
       const product = new Product({
         name,
@@ -43,21 +61,23 @@ router.post(
         quantity,
         category,
         isFeatured,
-        photo,        // ✅ Cloudinary URL
-        public_id,    // ✅ needed for delete/update
+        photo,
+        public_id,
+        variants: variants ? JSON.parse(variants) : [],
       });
 
       await product.save();
 
       res.status(201).json(product);
     } catch (err) {
-      console.error(err);
+      console.error("CREATE ERROR:", err);
       res.status(500).json({ message: "Create failed" });
     }
   }
 );
+
 /* ===============================
-   🔹 GET ALL PRODUCTS (ADMIN)
+   🔹 GET ALL PRODUCTS
 ================================ */
 router.get("/", auth, adminAuth, async (req, res) => {
   try {
@@ -87,20 +107,18 @@ router.get("/:id", auth, adminAuth, async (req, res) => {
 
 /* ===============================
    🔹 UPDATE PRODUCT
-===============================*/
-
+================================ */
 router.put(
   "/:id",
   auth,
   adminAuth,
-  upload.single("photo"), // ✅ Cloudinary upload
+  upload.single("photo"),
   async (req, res) => {
     try {
-      console.log("BODY:", req.body);
-
       let product = await Product.findById(req.params.id);
+
       if (!product) {
-        return res.status(404).json({ message: "Not found" });
+        return res.status(404).json({ message: "Product not found" });
       }
 
       const {
@@ -121,16 +139,26 @@ router.put(
       if (category) product.category = category;
       if (isFeatured !== undefined) product.isFeatured = isFeatured;
 
-      // ✅ Image update (Cloudinary)
+      // ✅ Upload new image (FIXED)
       if (req.file) {
-        // 🔥 delete old image from Cloudinary
+        // 🔥 delete old image
         if (product.public_id) {
           await cloudinary.uploader.destroy(product.public_id);
         }
 
-        // 🔥 save new image
-        product.photo = req.file.path;        // ✅ Cloudinary URL
-        product.public_id = req.file.filename; // ✅ new public_id
+        const result = await new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { folder: "products" },
+            (error, result) => {
+              if (error) reject(error);
+              else resolve(result);
+            }
+          );
+          stream.end(req.file.buffer);
+        });
+
+        product.photo = result.secure_url;
+        product.public_id = result.public_id;
       }
 
       // ✅ Variants
@@ -147,12 +175,20 @@ router.put(
     }
   }
 );
-/*=====================================
+
+/* ===============================
    🔹 DELETE PRODUCT
 ================================ */
 router.delete("/:id", auth, adminAuth, async (req, res) => {
   try {
+    const product = await Product.findById(req.params.id);
+
+    if (product?.public_id) {
+      await cloudinary.uploader.destroy(product.public_id);
+    }
+
     await Product.findByIdAndDelete(req.params.id);
+
     res.json({ message: "Product deleted successfully" });
   } catch (err) {
     res.status(500).json({ message: "Product delete failed" });
